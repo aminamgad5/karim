@@ -4,10 +4,12 @@ class ETAInvoiceExporter {
     this.totalCount = 0;
     this.currentPage = 1;
     this.totalPages = 1;
+    this.isProcessing = false;
     
     this.initializeElements();
     this.attachEventListeners();
     this.checkCurrentPage();
+    this.setupProgressListener();
   }
   
   initializeElements() {
@@ -19,6 +21,9 @@ class ETAInvoiceExporter {
       jsonBtn: document.getElementById('jsonBtn'),
       excelBtn: document.getElementById('excelBtn'),
       pdfBtn: document.getElementById('pdfBtn'),
+      progressContainer: null, // Will be created dynamically
+      progressBar: null,
+      progressText: null,
       checkboxes: {
         date: document.getElementById('option-date'),
         id: document.getElementById('option-id'),
@@ -35,6 +40,66 @@ class ETAInvoiceExporter {
         downloadAll: document.getElementById('option-download-all')
       }
     };
+    
+    this.createProgressElements();
+  }
+  
+  createProgressElements() {
+    // Create progress container
+    this.elements.progressContainer = document.createElement('div');
+    this.elements.progressContainer.className = 'progress-container';
+    this.elements.progressContainer.style.cssText = `
+      margin-top: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+      display: none;
+    `;
+    
+    // Create progress bar
+    this.elements.progressBar = document.createElement('div');
+    this.elements.progressBar.className = 'progress-bar';
+    this.elements.progressBar.style.cssText = `
+      width: 100%;
+      height: 20px;
+      background: #e9ecef;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      position: relative;
+    `;
+    
+    const progressFill = document.createElement('div');
+    progressFill.className = 'progress-fill';
+    progressFill.style.cssText = `
+      height: 100%;
+      background: linear-gradient(90deg, #28a745, #20c997);
+      border-radius: 10px;
+      width: 0%;
+      transition: width 0.3s ease;
+      position: relative;
+    `;
+    
+    this.elements.progressBar.appendChild(progressFill);
+    
+    // Create progress text
+    this.elements.progressText = document.createElement('div');
+    this.elements.progressText.className = 'progress-text';
+    this.elements.progressText.style.cssText = `
+      text-align: center;
+      font-size: 14px;
+      color: #495057;
+      font-weight: 500;
+    `;
+    
+    // Assemble progress container
+    this.elements.progressContainer.appendChild(this.elements.progressBar);
+    this.elements.progressContainer.appendChild(this.elements.progressText);
+    
+    // Add to DOM
+    const statusElement = this.elements.status;
+    statusElement.parentNode.insertBefore(this.elements.progressContainer, statusElement.nextSibling);
   }
   
   attachEventListeners() {
@@ -42,6 +107,32 @@ class ETAInvoiceExporter {
     this.elements.excelBtn.addEventListener('click', () => this.handleExport('excel'));
     this.elements.jsonBtn.addEventListener('click', () => this.handleExport('json'));
     this.elements.pdfBtn.addEventListener('click', () => this.handleExport('pdf'));
+    
+    // Add listener for download all checkbox
+    this.elements.checkboxes.downloadAll.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        this.showMultiPageWarning();
+      }
+    });
+  }
+  
+  setupProgressListener() {
+    // Listen for progress updates from content script
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === 'progressUpdate') {
+        this.updateProgress(message.progress);
+      }
+    });
+  }
+  
+  showMultiPageWarning() {
+    const warningText = `تحذير: سيتم تحميل جميع الصفحات (${this.totalPages} صفحة) وقد يستغرق وقتاً أطول.`;
+    this.showStatus(warningText, 'loading');
+    
+    setTimeout(() => {
+      this.elements.status.textContent = '';
+      this.elements.status.className = 'status';
+    }, 3000);
   }
   
   async checkCurrentPage() {
@@ -90,6 +181,12 @@ class ETAInvoiceExporter {
     const currentPageCount = this.invoiceData.length;
     this.elements.countInfo.textContent = `الصفحة الحالية: ${currentPageCount} فاتورة | المجموع: ${this.totalCount} فاتورة`;
     this.elements.totalCountText.textContent = this.totalCount;
+    
+    // Update download all option text
+    const downloadAllLabel = this.elements.checkboxes.downloadAll.parentElement.querySelector('label');
+    if (downloadAllLabel) {
+      downloadAllLabel.innerHTML = `تحميل جميع الصفحات - <span id="totalCountText">${this.totalCount}</span> فاتورة (${this.totalPages} صفحة)`;
+    }
   }
   
   getSelectedOptions() {
@@ -101,12 +198,18 @@ class ETAInvoiceExporter {
   }
   
   async handleExport(format) {
+    if (this.isProcessing) {
+      this.showStatus('جاري المعالجة... يرجى الانتظار', 'loading');
+      return;
+    }
+    
     const options = this.getSelectedOptions();
     
     if (!this.validateOptions(options)) {
       return;
     }
     
+    this.isProcessing = true;
     this.disableButtons();
     
     try {
@@ -119,7 +222,9 @@ class ETAInvoiceExporter {
       this.showStatus('خطأ في التصدير: ' + error.message, 'error');
       console.error('Export error:', error);
     } finally {
+      this.isProcessing = false;
       this.enableButtons();
+      this.hideProgress();
     }
   }
   
@@ -147,27 +252,67 @@ class ETAInvoiceExporter {
   }
   
   async exportAllPages(format, options) {
+    this.showProgress();
     this.showStatus('جاري تحميل جميع الصفحات...', 'loading');
     
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    // Send message to content script to process all pages
     const allData = await chrome.tabs.sendMessage(tab.id, { 
       action: 'getAllPagesData',
-      options: options
+      options: { ...options, progressCallback: true }
     });
     
     if (!allData || !allData.success) {
-      throw new Error('فشل في تحميل جميع الصفحات');
+      throw new Error('فشل في تحميل جميع الصفحات: ' + (allData?.error || 'خطأ غير معروف'));
     }
     
     let dataToExport = allData.data;
     
-    if (options.downloadDetails) {
-      this.showStatus('جاري تحميل تفاصيل جميع الفواتير...', 'loading');
+    if (options.downloadDetails && dataToExport.length > 0) {
+      this.updateProgress({
+        currentPage: this.totalPages,
+        totalPages: this.totalPages,
+        message: 'جاري تحميل تفاصيل جميع الفواتير...'
+      });
+      
       dataToExport = await this.loadInvoiceDetails(dataToExport);
     }
     
+    this.updateProgress({
+      currentPage: this.totalPages,
+      totalPages: this.totalPages,
+      message: 'جاري إنشاء الملف...'
+    });
+    
     await this.generateFile(dataToExport, format, options);
-    this.showStatus(`تم تصدير ${dataToExport.length} فاتورة من جميع الصفحات!`, 'success');
+    this.showStatus(`تم تصدير ${dataToExport.length} فاتورة من جميع الصفحات بنجاح!`, 'success');
+  }
+  
+  showProgress() {
+    this.elements.progressContainer.style.display = 'block';
+    this.updateProgress({ currentPage: 0, totalPages: this.totalPages, message: 'جاري البدء...' });
+  }
+  
+  hideProgress() {
+    this.elements.progressContainer.style.display = 'none';
+  }
+  
+  updateProgress(progress) {
+    if (!this.elements.progressContainer || this.elements.progressContainer.style.display === 'none') {
+      return;
+    }
+    
+    const percentage = progress.totalPages > 0 ? (progress.currentPage / progress.totalPages) * 100 : 0;
+    
+    const progressFill = this.elements.progressBar.querySelector('.progress-fill');
+    if (progressFill) {
+      progressFill.style.width = `${Math.min(percentage, 100)}%`;
+    }
+    
+    if (this.elements.progressText) {
+      this.elements.progressText.textContent = progress.message || `الصفحة ${progress.currentPage} من ${progress.totalPages}`;
+    }
   }
   
   async loadInvoiceDetails(invoices) {
@@ -229,11 +374,12 @@ class ETAInvoiceExporter {
       this.createDetailsSheets(wb, data, options);
     }
     
-    // Add VBA code for interactivity
-    this.addVBACode(wb);
+    // Add statistics sheet
+    this.createStatisticsSheet(wb, data, options);
     
     const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const filename = `ETA_Invoices_Interactive_${timestamp}.xlsx`;
+    const pageInfo = options.downloadAll ? 'AllPages' : `Page${this.currentPage}`;
+    const filename = `ETA_Invoices_${pageInfo}_${timestamp}.xlsx`;
     
     XLSX.writeFile(wb, filename);
   }
@@ -252,7 +398,14 @@ class ETAInvoiceExporter {
       'قيمة الفاتورة', // Invoice Value
       'ضريبة القيمة المضافة', // VAT
       'الخصم تحت حساب الضريبة', // Tax Discount
-      'إجمالي الفاتورة' // Total Invoice
+      'إجمالي الفاتورة', // Total Invoice
+      'اسم المورد',    // Supplier Name
+      'الرقم الضريبي للمورد', // Supplier Tax ID
+      'اسم العميل',    // Customer Name
+      'الرقم الضريبي للعميل', // Customer Tax ID
+      'الرقم الداخلي',  // Internal ID
+      'UUID',         // UUID
+      'رقم الصفحة'     // Page Number (for multi-page exports)
     ];
     
     const rows = [headers];
@@ -270,7 +423,14 @@ class ETAInvoiceExporter {
         invoice.totalAmount || '',    // Invoice value
         invoice.vatAmount || '',      // VAT amount
         '',                          // Tax discount
-        invoice.totalAmount || ''     // Total
+        invoice.totalAmount || '',    // Total
+        invoice.supplierName || '',   // Supplier name
+        invoice.supplierTaxId || '',  // Supplier tax ID
+        invoice.receiverName || '',   // Customer name
+        invoice.receiverTaxId || '',  // Customer tax ID
+        invoice.internalId || '',     // Internal ID
+        invoice.uuid || '',           // UUID
+        invoice.pageNumber || ''      // Page number
       ];
       rows.push(row);
     });
@@ -281,9 +441,71 @@ class ETAInvoiceExporter {
     this.formatInteractiveWorksheet(ws, headers, data.length);
     
     // Add hyperlinks to view buttons
-    this.addViewButtonHyperlinks(ws, data.length);
+    if (options.downloadDetails) {
+      this.addViewButtonHyperlinks(ws, data.length);
+    }
     
     XLSX.utils.book_append_sheet(wb, ws, 'ملخص الفواتير');
+  }
+  
+  createStatisticsSheet(wb, data, options) {
+    const stats = this.calculateStatistics(data);
+    
+    const statsData = [
+      ['إحصائيات الفواتير', ''],
+      ['', ''],
+      ['إجمالي عدد الفواتير', data.length],
+      ['إجمالي قيمة الفواتير', stats.totalValue.toFixed(2) + ' EGP'],
+      ['إجمالي ضريبة القيمة المضافة', stats.totalVAT.toFixed(2) + ' EGP'],
+      ['متوسط قيمة الفاتورة', stats.averageValue.toFixed(2) + ' EGP'],
+      ['', ''],
+      ['إحصائيات حسب الحالة', ''],
+      ...Object.entries(stats.statusCounts).map(([status, count]) => [status, count]),
+      ['', ''],
+      ['إحصائيات حسب النوع', ''],
+      ...Object.entries(stats.typeCounts).map(([type, count]) => [type, count]),
+      ['', ''],
+      ['تاريخ التصدير', new Date().toLocaleString('ar-EG')],
+      ['نوع التصدير', options.downloadAll ? 'جميع الصفحات' : 'الصفحة الحالية']
+    ];
+    
+    const ws = XLSX.utils.aoa_to_sheet(statsData);
+    
+    // Format statistics sheet
+    ws['!cols'] = [{ wch: 25 }, { wch: 20 }];
+    
+    XLSX.utils.book_append_sheet(wb, ws, 'الإحصائيات');
+  }
+  
+  calculateStatistics(data) {
+    const stats = {
+      totalValue: 0,
+      totalVAT: 0,
+      averageValue: 0,
+      statusCounts: {},
+      typeCounts: {}
+    };
+    
+    data.forEach(invoice => {
+      // Calculate totals
+      const value = parseFloat(invoice.totalAmount?.replace(/,/g, '') || 0);
+      const vat = parseFloat(invoice.vatAmount || 0);
+      
+      stats.totalValue += value;
+      stats.totalVAT += vat;
+      
+      // Count statuses
+      const status = invoice.status || 'غير محدد';
+      stats.statusCounts[status] = (stats.statusCounts[status] || 0) + 1;
+      
+      // Count types
+      const type = invoice.type || 'غير محدد';
+      stats.typeCounts[type] = (stats.typeCounts[type] || 0) + 1;
+    });
+    
+    stats.averageValue = data.length > 0 ? stats.totalValue / data.length : 0;
+    
+    return stats;
   }
   
   formatInteractiveWorksheet(ws, headers, dataLength) {
@@ -300,7 +522,14 @@ class ETAInvoiceExporter {
       { wch: 15 },  // Invoice value
       { wch: 18 },  // VAT
       { wch: 20 },  // Tax discount
-      { wch: 15 }   // Total
+      { wch: 15 },  // Total
+      { wch: 20 },  // Supplier name
+      { wch: 18 },  // Supplier tax ID
+      { wch: 20 },  // Customer name
+      { wch: 18 },  // Customer tax ID
+      { wch: 15 },  // Internal ID
+      { wch: 25 },  // UUID
+      { wch: 10 }   // Page number
     ];
     
     ws['!cols'] = colWidths;
@@ -446,40 +675,15 @@ class ETAInvoiceExporter {
     }
   }
   
-  addVBACode(wb) {
-    // Add VBA code for enhanced interactivity
-    const vbaCode = `
-Sub ViewInvoiceDetails(invoiceRow As Integer)
-    Dim sheetName As String
-    sheetName = "تفاصيل_فاتورة_" & invoiceRow
-    
-    On Error GoTo SheetNotFound
-    Worksheets(sheetName).Activate
-    Range("A1").Select
-    Exit Sub
-    
-SheetNotFound:
-    MsgBox "لم يتم العثور على تفاصيل هذه الفاتورة", vbInformation, "تنبيه"
-End Sub
-
-Private Sub Worksheet_SelectionChange(ByVal Target As Range)
-    If Target.Column = 2 And Target.Row > 1 Then ' Column B (View buttons)
-        If Target.Value = "عرض" Then
-            Call ViewInvoiceDetails(Target.Row - 1)
-        End If
-    End If
-End Sub
-    `;
-    
-    // Note: XLSX.js doesn't support VBA directly, but we can add it as a comment
-    // In a real implementation, you would need to use a different library or approach
-  }
-  
   generateJSONFile(data, options) {
     const jsonData = {
       exportDate: new Date().toISOString(),
       totalCount: data.length,
+      exportType: options.downloadAll ? 'all_pages' : 'current_page',
+      totalPages: this.totalPages,
+      currentPage: this.currentPage,
       options: options,
+      statistics: this.calculateStatistics(data),
       invoices: data
     };
     
@@ -488,7 +692,9 @@ End Sub
     
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ETA_Invoices_${new Date().toISOString().split('T')[0]}.json`;
+    const timestamp = new Date().toISOString().split('T')[0];
+    const pageInfo = options.downloadAll ? 'AllPages' : `Page${this.currentPage}`;
+    a.download = `ETA_Invoices_${pageInfo}_${timestamp}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -505,8 +711,10 @@ End Sub
     
     if (type === 'success' || type === 'error') {
       setTimeout(() => {
-        this.elements.status.textContent = '';
-        this.elements.status.className = 'status';
+        if (!this.isProcessing) {
+          this.elements.status.textContent = '';
+          this.elements.status.className = 'status';
+        }
       }, 3000);
     }
   }

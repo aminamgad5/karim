@@ -66,6 +66,11 @@ class ETABackground {
                     sendResponse(stats);
                     break;
 
+                case 'progressUpdate':
+                    // Forward progress updates to popup if needed
+                    // This allows content script to communicate progress to popup
+                    break;
+
                 default:
                     sendResponse({ error: 'Unknown action' });
             }

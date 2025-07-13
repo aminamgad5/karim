@@ -1,10 +1,13 @@
-// Content script for ETA Invoice Exporter
+// Content script for ETA Invoice Exporter with multi-page support
 class ETAContentScript {
   constructor() {
     this.invoiceData = [];
+    this.allPagesData = [];
     this.totalCount = 0;
     this.currentPage = 1;
     this.totalPages = 1;
+    this.isProcessingAllPages = false;
+    this.progressCallback = null;
     this.init();
   }
   
@@ -19,7 +22,7 @@ class ETAContentScript {
   }
   
   setupMutationObserver() {
-    const observer = new MutationObserver((mutations) => {
+    this.observer = new MutationObserver((mutations) => {
       let shouldRescan = false;
       
       mutations.forEach((mutation) => {
@@ -28,7 +31,8 @@ class ETAContentScript {
             if (node.nodeType === Node.ELEMENT_NODE) {
               if (node.classList?.contains('ms-DetailsRow') || 
                   node.querySelector?.('.ms-DetailsRow') ||
-                  node.classList?.contains('ms-List-cell')) {
+                  node.classList?.contains('ms-List-cell') ||
+                  node.classList?.contains('eta-pageNumber')) {
                 shouldRescan = true;
               }
             }
@@ -36,13 +40,13 @@ class ETAContentScript {
         }
       });
       
-      if (shouldRescan) {
+      if (shouldRescan && !this.isProcessingAllPages) {
         clearTimeout(this.rescanTimeout);
         this.rescanTimeout = setTimeout(() => this.scanForInvoices(), 1000);
       }
     });
     
-    observer.observe(document.body, {
+    this.observer.observe(document.body, {
       childList: true,
       subtree: true
     });
@@ -57,7 +61,7 @@ class ETAContentScript {
       
       // Find invoice rows using the correct selectors
       const rows = document.querySelectorAll('.ms-DetailsRow[role="row"]');
-      console.log(`ETA Exporter: Found ${rows.length} invoice rows`);
+      console.log(`ETA Exporter: Found ${rows.length} invoice rows on page ${this.currentPage}`);
       
       rows.forEach((row, index) => {
         const invoiceData = this.extractDataFromRow(row, index + 1);
@@ -66,7 +70,7 @@ class ETAContentScript {
         }
       });
       
-      console.log(`ETA Exporter: Extracted ${this.invoiceData.length} valid invoices`);
+      console.log(`ETA Exporter: Extracted ${this.invoiceData.length} valid invoices from page ${this.currentPage}`);
       
     } catch (error) {
       console.error('ETA Exporter: Error scanning for invoices:', error);
@@ -84,14 +88,28 @@ class ETAContentScript {
         }
       }
       
+      // Alternative selectors for total count
+      if (!this.totalCount) {
+        const paginationText = document.querySelector('[class*="pagination"]');
+        if (paginationText) {
+          const match = paginationText.textContent.match(/(\d+)\s*(?:من|of|total)/i);
+          if (match) {
+            this.totalCount = parseInt(match[1]);
+          }
+        }
+      }
+      
       // Extract current page
-      const currentPageBtn = document.querySelector('.eta-pageNumber.is-checked');
+      const currentPageBtn = document.querySelector('.eta-pageNumber.is-checked, .ms-Button--primary[aria-pressed="true"]');
       if (currentPageBtn) {
         this.currentPage = parseInt(currentPageBtn.textContent) || 1;
       }
       
-      // Calculate total pages (assuming 10 items per page)
-      this.totalPages = Math.ceil(this.totalCount / 10);
+      // Calculate total pages (assuming 10 items per page by default)
+      const itemsPerPage = this.invoiceData.length || 10;
+      this.totalPages = Math.ceil(this.totalCount / itemsPerPage);
+      
+      console.log(`ETA Exporter: Page ${this.currentPage} of ${this.totalPages}, Total: ${this.totalCount} invoices`);
       
     } catch (error) {
       console.warn('ETA Exporter: Error extracting pagination info:', error);
@@ -114,7 +132,8 @@ class ETAContentScript {
       receiverName: '',
       receiverTaxId: '',
       submissionId: '',
-      status: ''
+      status: '',
+      pageNumber: this.currentPage
     };
     
     try {
@@ -252,6 +271,180 @@ class ETAContentScript {
     return !!(invoice.uuid || invoice.internalId || invoice.totalAmount);
   }
   
+  async getAllPagesData(options = {}) {
+    try {
+      this.isProcessingAllPages = true;
+      this.allPagesData = [];
+      
+      // First, scan current page to get pagination info
+      this.scanForInvoices();
+      
+      if (this.totalPages <= 1) {
+        // Only one page, return current data
+        return {
+          success: true,
+          data: this.invoiceData,
+          totalProcessed: this.invoiceData.length
+        };
+      }
+      
+      // Start from page 1
+      await this.navigateToPage(1);
+      
+      // Process all pages
+      for (let page = 1; page <= this.totalPages; page++) {
+        try {
+          // Update progress
+          if (this.progressCallback) {
+            this.progressCallback({
+              currentPage: page,
+              totalPages: this.totalPages,
+              message: `جاري معالجة الصفحة ${page} من ${this.totalPages}...`
+            });
+          }
+          
+          // Wait for page to load and scan
+          await this.waitForPageLoad();
+          this.scanForInvoices();
+          
+          // Add current page data to all pages data
+          this.allPagesData.push(...this.invoiceData);
+          
+          console.log(`ETA Exporter: Processed page ${page}, collected ${this.invoiceData.length} invoices`);
+          
+          // Navigate to next page if not the last page
+          if (page < this.totalPages) {
+            await this.navigateToNextPage();
+            await this.delay(1500); // Wait between page transitions
+          }
+          
+        } catch (error) {
+          console.error(`Error processing page ${page}:`, error);
+          // Continue with next page even if current page fails
+        }
+      }
+      
+      return {
+        success: true,
+        data: this.allPagesData,
+        totalProcessed: this.allPagesData.length
+      };
+      
+    } catch (error) {
+      console.error('Error getting all pages data:', error);
+      return { 
+        success: false, 
+        data: this.allPagesData,
+        error: error.message 
+      };
+    } finally {
+      this.isProcessingAllPages = false;
+    }
+  }
+  
+  async navigateToPage(pageNumber) {
+    try {
+      // Look for page number button
+      const pageButton = document.querySelector(`[aria-label="Page ${pageNumber}"], .eta-pageNumber[data-page="${pageNumber}"]`);
+      
+      if (pageButton) {
+        pageButton.click();
+        await this.waitForPageLoad();
+        return true;
+      }
+      
+      // Alternative: look for page input field
+      const pageInput = document.querySelector('input[type="number"][aria-label*="page"], .ms-TextField-field[type="number"]');
+      if (pageInput) {
+        pageInput.value = pageNumber.toString();
+        pageInput.dispatchEvent(new Event('change', { bubbles: true }));
+        pageInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        
+        // Look for go/submit button
+        const goButton = document.querySelector('[aria-label*="Go"], .ms-Button[type="submit"]');
+        if (goButton) {
+          goButton.click();
+        }
+        
+        await this.waitForPageLoad();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`Error navigating to page ${pageNumber}:`, error);
+      return false;
+    }
+  }
+  
+  async navigateToNextPage() {
+    try {
+      // Look for next page button
+      const nextButton = document.querySelector(
+        '[aria-label="Next page"], [aria-label="التالي"], .ms-Button[data-automation-id="nextPageButton"], .eta-pageNumber.is-next'
+      );
+      
+      if (nextButton && !nextButton.disabled) {
+        nextButton.click();
+        return true;
+      }
+      
+      // Alternative: look for current page + 1
+      const currentPageNum = this.currentPage;
+      const nextPageButton = document.querySelector(`[aria-label="Page ${currentPageNum + 1}"]`);
+      
+      if (nextPageButton) {
+        nextPageButton.click();
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error navigating to next page:', error);
+      return false;
+    }
+  }
+  
+  async waitForPageLoad() {
+    // Wait for loading indicators to disappear
+    await this.waitForCondition(() => {
+      const loadingIndicators = document.querySelectorAll(
+        '.ms-Spinner, .loading, [aria-label*="Loading"], [aria-label*="جاري التحميل"]'
+      );
+      return loadingIndicators.length === 0;
+    }, 10000);
+    
+    // Wait for invoice rows to appear
+    await this.waitForCondition(() => {
+      const rows = document.querySelectorAll('.ms-DetailsRow[role="row"]');
+      return rows.length > 0;
+    }, 10000);
+    
+    // Additional wait to ensure data is fully loaded
+    await this.delay(1000);
+  }
+  
+  async waitForCondition(condition, timeout = 5000) {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      if (condition()) {
+        return true;
+      }
+      await this.delay(100);
+    }
+    
+    return false;
+  }
+  
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+  
+  setProgressCallback(callback) {
+    this.progressCallback = callback;
+  }
+  
   async getInvoiceDetails(invoiceId) {
     try {
       // Simulate clicking on the invoice to get details
@@ -352,20 +545,6 @@ class ETAContentScript {
     }
   }
   
-  async getAllPagesData(options) {
-    try {
-      // This would require navigating through all pages
-      // For now, return current page data
-      return {
-        success: true,
-        data: this.invoiceData
-      };
-    } catch (error) {
-      console.error('Error getting all pages data:', error);
-      return { success: false, data: [] };
-    }
-  }
-  
   getInvoiceData() {
     return {
       invoices: this.invoiceData,
@@ -373,6 +552,15 @@ class ETAContentScript {
       currentPage: this.currentPage,
       totalPages: this.totalPages
     };
+  }
+  
+  cleanup() {
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+    if (this.rescanTimeout) {
+      clearTimeout(this.rescanTimeout);
+    }
   }
 }
 
@@ -396,6 +584,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true; // Indicates async response
       
     case 'getAllPagesData':
+      // Set up progress callback
+      if (request.options && request.options.progressCallback) {
+        etaContentScript.setProgressCallback((progress) => {
+          chrome.runtime.sendMessage({
+            action: 'progressUpdate',
+            progress: progress
+          });
+        });
+      }
+      
       etaContentScript.getAllPagesData(request.options)
         .then(result => sendResponse(result))
         .catch(error => sendResponse({ success: false, error: error.message }));
@@ -414,4 +612,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   return true;
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  etaContentScript.cleanup();
 });
