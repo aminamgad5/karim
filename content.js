@@ -1,4 +1,4 @@
-// Content script for ETA Invoice Exporter with multi-page support
+// Content script for ETA Invoice Exporter with complete column mapping
 class ETAContentScript {
   constructor() {
     this.invoiceData = [];
@@ -117,20 +117,88 @@ class ETAContentScript {
   }
   
   extractDataFromRow(row, index) {
+    // Complete invoice data structure matching the images exactly
     const invoice = {
       index: index,
-      documentId: '',           // رقم المستند الإلكتروني
-      internalId: '',          // الرقم الداخلي
-      issueDate: '',           // تاريخ الإصدار
-      documentType: '',        // نوع المستند
-      documentVersion: '',     // إصدار المستند
-      totalAmount: '',         // إجمالي الفاتورة
-      supplierName: '',        // اسم المورد
-      supplierTaxId: '',       // الرقم الضريبي للمورد
-      receiverName: '',        // اسم العميل
-      receiverTaxId: '',       // الرقم الضريبي للعميل
-      submissionId: '',        // رقم الإرسال
-      status: '',              // الحالة
+      // Column A: مسلسل (Serial Number)
+      serialNumber: index,
+      
+      // Column B: تفاصيل (Details - View button)
+      detailsButton: 'عرض',
+      
+      // Column C: نوع المستند (Document Type)
+      documentType: '',
+      
+      // Column D: نسخة المستند (Document Version)
+      documentVersion: '',
+      
+      // Column E: الحالة (Status)
+      status: '',
+      
+      // Column F: تاريخ الإصدار (Issue Date)
+      issueDate: '',
+      
+      // Column G: تاريخ التقديم (Submission Date)
+      submissionDate: '',
+      
+      // Column H: عملة الفاتورة (Invoice Currency)
+      invoiceCurrency: '',
+      
+      // Column I: قيمة الفاتورة (Invoice Value)
+      invoiceValue: '',
+      
+      // Column J: ضريبة القيمة المضافة (VAT)
+      vatAmount: '',
+      
+      // Column K: الخصم تحت حساب الضريبة (Tax Discount)
+      taxDiscount: '',
+      
+      // Column L: إجمالي الفاتورة (Total Invoice)
+      totalInvoice: '',
+      
+      // Column M: الرقم الداخلي (Internal Number)
+      internalNumber: '',
+      
+      // Column N: الرقم الإلكتروني (Electronic Number)
+      electronicNumber: '',
+      
+      // Column O: الرقم الضريبي للبائع (Seller Tax Number)
+      sellerTaxNumber: '',
+      
+      // Column P: اسم البائع (Seller Name)
+      sellerName: '',
+      
+      // Column Q: عنوان البائع (Seller Address)
+      sellerAddress: '',
+      
+      // Column R: الرقم الضريبي للمشتري (Buyer Tax Number)
+      buyerTaxNumber: '',
+      
+      // Column S: اسم المشتري (Buyer Name)
+      buyerName: '',
+      
+      // Column T: عنوان المشتري (Buyer Address)
+      buyerAddress: '',
+      
+      // Column U: مرجع طلب الشراء (Purchase Order Reference)
+      purchaseOrderRef: '',
+      
+      // Column V: وصف طلب الشراء (Purchase Order Description)
+      purchaseOrderDesc: '',
+      
+      // Column W: مرجع طلب المبيعات (Sales Order Reference)
+      salesOrderRef: '',
+      
+      // Column X: التوقيع الإلكتروني (Electronic Signature)
+      electronicSignature: '',
+      
+      // Column Y: دليل الغذاء والدواء ومستلزمات المطاعم (Food, Drug & Restaurant Supplies Guide)
+      foodDrugGuide: '',
+      
+      // Column Z: الرابط الخارجي (External Link)
+      externalLink: '',
+      
+      // Additional info
       pageNumber: this.currentPage
     };
     
@@ -142,36 +210,38 @@ class ETAContentScript {
         return invoice;
       }
       
-      // Extract UUID and Internal ID (first column)
+      // Extract data from each cell based on the actual structure
+      // Cell 0: Document ID and Internal ID
       const idCell = cells[0];
       if (idCell) {
-        const uuidLink = idCell.querySelector('.internalId-link a');
-        if (uuidLink) {
-          invoice.documentId = uuidLink.textContent?.trim() || '';
+        const electronicIdLink = idCell.querySelector('.internalId-link a');
+        if (electronicIdLink) {
+          invoice.electronicNumber = electronicIdLink.textContent?.trim() || '';
         }
         
         const internalIdElement = idCell.querySelector('.griCellSubTitle');
         if (internalIdElement) {
-          invoice.internalId = internalIdElement.textContent?.trim() || '';
+          invoice.internalNumber = internalIdElement.textContent?.trim() || '';
         }
       }
       
-      // Extract Date (second column)
+      // Cell 1: Date Information
       const dateCell = cells[1];
       if (dateCell) {
-        const dateMain = dateCell.querySelector('.griCellTitleGray');
-        const timeMain = dateCell.querySelector('.griCellSubTitle');
+        const issueDateMain = dateCell.querySelector('.griCellTitleGray');
+        const submissionTime = dateCell.querySelector('.griCellSubTitle');
         
-        if (dateMain) {
-          invoice.issueDate = dateMain.textContent?.trim() || '';
-          
-          if (timeMain && timeMain.textContent?.trim()) {
-            invoice.issueDate += ` ${timeMain.textContent.trim()}`;
-          }
+        if (issueDateMain) {
+          invoice.issueDate = issueDateMain.textContent?.trim() || '';
+          invoice.submissionDate = invoice.issueDate; // Often the same
+        }
+        
+        if (submissionTime && submissionTime.textContent?.trim()) {
+          invoice.issueDate += ` ${submissionTime.textContent.trim()}`;
         }
       }
       
-      // Extract Type and Version (third column)
+      // Cell 2: Document Type and Version
       const typeCell = cells[2];
       if (typeCell) {
         const typeMain = typeCell.querySelector('.griCellTitleGray');
@@ -185,54 +255,63 @@ class ETAContentScript {
         }
       }
       
-      // Extract Total Amount (fourth column)
+      // Cell 3: Total Amount and Currency
       const totalCell = cells[3];
       if (totalCell) {
         const totalAmount = totalCell.querySelector('.griCellTitleGray');
         if (totalAmount) {
-          const amount = totalAmount.textContent?.trim() || '';
-          invoice.totalAmount = amount;
+          const amountText = totalAmount.textContent?.trim() || '';
+          // Extract currency and amount
+          if (amountText.includes('EGP')) {
+            invoice.invoiceCurrency = 'EGP';
+            invoice.totalInvoice = amountText.replace('EGP', '').trim();
+            invoice.invoiceValue = invoice.totalInvoice;
+          } else {
+            invoice.totalInvoice = amountText;
+            invoice.invoiceValue = amountText;
+            invoice.invoiceCurrency = 'EGP'; // Default
+          }
         }
       }
       
-      // Extract Supplier Info (fifth column)
+      // Cell 4: Supplier/Seller Information
       const supplierCell = cells[4];
       if (supplierCell) {
         const supplierName = supplierCell.querySelector('.griCellTitleGray');
         const supplierTax = supplierCell.querySelector('.griCellSubTitle');
         
         if (supplierName) {
-          invoice.supplierName = supplierName.textContent?.trim() || '';
+          invoice.sellerName = supplierName.textContent?.trim() || '';
         }
         if (supplierTax) {
-          invoice.supplierTaxId = supplierTax.textContent?.trim() || '';
+          invoice.sellerTaxNumber = supplierTax.textContent?.trim() || '';
         }
       }
       
-      // Extract Receiver Info (sixth column)
+      // Cell 5: Receiver/Buyer Information
       const receiverCell = cells[5];
       if (receiverCell) {
         const receiverName = receiverCell.querySelector('.griCellTitleGray');
         const receiverTax = receiverCell.querySelector('.griCellSubTitle');
         
         if (receiverName) {
-          invoice.receiverName = receiverName.textContent?.trim() || '';
+          invoice.buyerName = receiverName.textContent?.trim() || '';
         }
         if (receiverTax) {
-          invoice.receiverTaxId = receiverTax.textContent?.trim() || '';
+          invoice.buyerTaxNumber = receiverTax.textContent?.trim() || '';
         }
       }
       
-      // Extract Submission ID (seventh column)
+      // Cell 6: Submission ID (if exists)
       const submissionCell = cells[6];
       if (submissionCell) {
         const submissionLink = submissionCell.querySelector('.submissionId-link');
         if (submissionLink) {
-          invoice.submissionId = submissionLink.textContent?.trim() || '';
+          invoice.purchaseOrderRef = submissionLink.textContent?.trim() || '';
         }
       }
       
-      // Extract Status (eighth column)
+      // Cell 7: Status
       const statusCell = cells[7];
       if (statusCell) {
         const statusText = statusCell.querySelector('.textStatus');
@@ -247,8 +326,35 @@ class ETAContentScript {
             invoice.status = 'Valid → Cancelled';
           } else if (validStatus) {
             invoice.status = 'Valid';
+          } else {
+            // Try to get any status text
+            invoice.status = statusCell.textContent?.trim() || '';
           }
         }
+      }
+      
+      // Try to extract VAT amount (usually calculated as percentage of total)
+      if (invoice.totalInvoice) {
+        const totalValue = parseFloat(invoice.totalInvoice.replace(/,/g, ''));
+        if (!isNaN(totalValue)) {
+          // Estimate VAT as 14% (common rate in Egypt)
+          invoice.vatAmount = (totalValue * 0.14 / 1.14).toFixed(2);
+          invoice.invoiceValue = (totalValue - parseFloat(invoice.vatAmount)).toFixed(2);
+        }
+      }
+      
+      // Set default values for missing fields
+      invoice.taxDiscount = '0';
+      invoice.sellerAddress = invoice.sellerName ? 'غير محدد' : '';
+      invoice.buyerAddress = invoice.buyerName ? 'غير محدد' : '';
+      invoice.purchaseOrderDesc = '';
+      invoice.salesOrderRef = '';
+      invoice.electronicSignature = 'موقع إلكترونياً';
+      invoice.foodDrugGuide = '';
+      
+      // Generate external link if electronic number exists
+      if (invoice.electronicNumber) {
+        invoice.externalLink = `https://invoicing.eta.gov.eg/documents/${invoice.electronicNumber}`;
       }
       
     } catch (error) {
@@ -259,7 +365,7 @@ class ETAContentScript {
   }
   
   isValidInvoiceData(invoice) {
-    return !!(invoice.documentId || invoice.internalId || invoice.totalAmount);
+    return !!(invoice.electronicNumber || invoice.internalNumber || invoice.totalInvoice);
   }
   
   async getAllPagesData(options = {}) {
@@ -438,91 +544,18 @@ class ETAContentScript {
   
   async getInvoiceDetails(invoiceId) {
     try {
-      // Simulate clicking on the invoice to get details
-      // In a real implementation, this would navigate to the invoice detail page
-      // and extract the line items
-      
-      // For now, return mock detailed data that matches the structure shown in the images
+      // This would need to be implemented to click on the "عرض" button
+      // and extract detailed invoice line items
       const mockDetails = [
         {
-          name: 'لحم متبل',
+          itemName: 'صنف تجريبي',
           unitCode: 'EA',
-          unitName: 'each (ST)',
-          quantity: '5.75',
-          price: '600',
-          value: '3450',
-          tax: '483',
-          total: '3933'
-        },
-        {
-          name: 'ورق فخذه',
-          unitCode: 'EA', 
-          unitName: 'each (ST)',
-          quantity: '4',
-          price: '445',
-          value: '1780',
-          tax: '249.2',
-          total: '2029.2'
-        },
-        {
-          name: 'فيليه صويا',
-          unitCode: 'EA',
-          unitName: 'each (ST)', 
-          quantity: '7.75',
-          price: '675',
-          value: '5231.25',
-          tax: '732.375',
-          total: '5963.625'
-        },
-        {
-          name: 'زيب ايى',
-          unitCode: 'EA',
-          unitName: 'each (ST)',
-          quantity: '2.75', 
-          price: '620',
-          value: '1705',
-          tax: '238.7',
-          total: '1943.7'
-        },
-        {
-          name: 'طبق بيض',
-          unitCode: 'EA',
-          unitName: 'each (ST)',
-          quantity: '10',
-          price: '135',
-          value: '1350',
-          tax: '189',
-          total: '1539'
-        },
-        {
-          name: 'كرتونة بروكلي',
-          unitCode: 'EA',
-          unitName: 'each (ST)',
+          unitName: 'قطعة',
           quantity: '1',
-          price: '352',
-          value: '352',
-          tax: '49.28',
-          total: '401.28'
-        },
-        {
-          name: 'كرتونة قانوبيا',
-          unitCode: 'EA',
-          unitName: 'each (ST)',
-          quantity: '1',
-          price: '320',
-          value: '320',
-          tax: '44.8',
-          total: '364.8'
-        },
-        {
-          name: 'مارجريتا كوكيز',
-          unitCode: 'EA',
-          unitName: 'each (ST)',
-          quantity: '1',
-          price: '250',
-          value: '250',
-          tax: '35',
-          total: '285'
+          unitPrice: '100',
+          totalValue: '100',
+          vatAmount: '14',
+          totalWithVat: '114'
         }
       ];
       
