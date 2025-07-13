@@ -492,6 +492,7 @@ class ETAInvoiceExporter {
   }
   
   formatInteractiveWorksheet(ws, headers, dataLength) {
+  }
   formatWorksheet(ws, headers, dataLength) {
     // Set column widths
     const colWidths = [
