@@ -119,20 +119,18 @@ class ETAContentScript {
   extractDataFromRow(row, index) {
     const invoice = {
       index: index,
-      uuid: '',
-      internalId: '',
-      issueDate: '',
-      submissionDate: '',
-      type: '',
-      version: '',
-      totalAmount: '',
-      vatAmount: '',
-      supplierName: '',
-      supplierTaxId: '',
-      receiverName: '',
-      receiverTaxId: '',
-      submissionId: '',
-      status: '',
+      documentId: '',           // رقم المستند الإلكتروني
+      internalId: '',          // الرقم الداخلي
+      issueDate: '',           // تاريخ الإصدار
+      documentType: '',        // نوع المستند
+      documentVersion: '',     // إصدار المستند
+      totalAmount: '',         // إجمالي الفاتورة
+      supplierName: '',        // اسم المورد
+      supplierTaxId: '',       // الرقم الضريبي للمورد
+      receiverName: '',        // اسم العميل
+      receiverTaxId: '',       // الرقم الضريبي للعميل
+      submissionId: '',        // رقم الإرسال
+      status: '',              // الحالة
       pageNumber: this.currentPage
     };
     
@@ -149,7 +147,7 @@ class ETAContentScript {
       if (idCell) {
         const uuidLink = idCell.querySelector('.internalId-link a');
         if (uuidLink) {
-          invoice.uuid = uuidLink.textContent?.trim() || '';
+          invoice.documentId = uuidLink.textContent?.trim() || '';
         }
         
         const internalIdElement = idCell.querySelector('.griCellSubTitle');
@@ -166,11 +164,9 @@ class ETAContentScript {
         
         if (dateMain) {
           invoice.issueDate = dateMain.textContent?.trim() || '';
-          invoice.submissionDate = invoice.issueDate;
           
           if (timeMain && timeMain.textContent?.trim()) {
             invoice.issueDate += ` ${timeMain.textContent.trim()}`;
-            invoice.submissionDate = invoice.issueDate;
           }
         }
       }
@@ -182,10 +178,10 @@ class ETAContentScript {
         const versionMain = typeCell.querySelector('.griCellSubTitle');
         
         if (typeMain) {
-          invoice.type = typeMain.textContent?.trim() || '';
+          invoice.documentType = typeMain.textContent?.trim() || '';
         }
         if (versionMain) {
-          invoice.version = versionMain.textContent?.trim() || '';
+          invoice.documentVersion = versionMain.textContent?.trim() || '';
         }
       }
       
@@ -196,11 +192,6 @@ class ETAContentScript {
         if (totalAmount) {
           const amount = totalAmount.textContent?.trim() || '';
           invoice.totalAmount = amount;
-          // Calculate VAT (assuming 14% VAT rate)
-          const numericAmount = parseFloat(amount.replace(/,/g, ''));
-          if (!isNaN(numericAmount)) {
-            invoice.vatAmount = (numericAmount * 0.14 / 1.14).toFixed(2);
-          }
         }
       }
       
@@ -268,7 +259,7 @@ class ETAContentScript {
   }
   
   isValidInvoiceData(invoice) {
-    return !!(invoice.uuid || invoice.internalId || invoice.totalAmount);
+    return !!(invoice.documentId || invoice.internalId || invoice.totalAmount);
   }
   
   async getAllPagesData(options = {}) {

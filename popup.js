@@ -385,52 +385,40 @@ class ETAInvoiceExporter {
   }
   
   createInteractiveSummarySheet(wb, data, options) {
-    // Arabic headers matching the image
+    // Arabic headers matching exactly the ETA portal interface
     const headers = [
-      'مسلسل',        // Serial
-      'تفاصيل',       // Details (View button)
-      'نوع المستند',   // Document Type
-      'نسخة المستند',  // Document Version
-      'الحالة',       // Status
-      'تاريخ الإصدار', // Issue Date
-      'تاريخ التقديم',  // Submission Date
-      'عملة الفاتورة', // Invoice Currency
-      'قيمة الفاتورة', // Invoice Value
-      'ضريبة القيمة المضافة', // VAT
-      'الخصم تحت حساب الضريبة', // Tax Discount
-      'إجمالي الفاتورة', // Total Invoice
-      'اسم المورد',    // Supplier Name
-      'الرقم الضريبي للمورد', // Supplier Tax ID
-      'اسم العميل',    // Customer Name
-      'الرقم الضريبي للعميل', // Customer Tax ID
-      'الرقم الداخلي',  // Internal ID
-      'UUID',         // UUID
-      'رقم الصفحة'     // Page Number (for multi-page exports)
+      'رقم المستند الإلكتروني',    // Electronic Document ID
+      'الرقم الداخلي',            // Internal ID  
+      'تاريخ الإصدار',            // Issue Date
+      'نوع المستند',             // Document Type
+      'إصدار المستند',           // Document Version
+      'إجمالي الفاتورة',          // Total Amount
+      'اسم المورد',              // Supplier Name
+      'الرقم الضريبي للمورد',      // Supplier Tax ID
+      'اسم العميل',              // Customer Name
+      'الرقم الضريبي للعميل',      // Customer Tax ID
+      'رقم الإرسال',             // Submission ID
+      'الحالة',                 // Status
+      'رقم الصفحة'               // Page Number (for multi-page exports)
     ];
     
     const rows = [headers];
     
     data.forEach((invoice, index) => {
       const row = [
-        index + 1,                    // Serial number
-        'عرض',                       // View button text
-        invoice.type || 'فاتورة',     // Document type
-        invoice.version || '1.0',     // Version
-        invoice.status || 'Valid',    // Status
-        invoice.issueDate || '',      // Issue date
-        invoice.submissionDate || '', // Submission date
-        'EGP',                       // Currency
-        invoice.totalAmount || '',    // Invoice value
-        invoice.vatAmount || '',      // VAT amount
-        '',                          // Tax discount
-        invoice.totalAmount || '',    // Total
-        invoice.supplierName || '',   // Supplier name
-        invoice.supplierTaxId || '',  // Supplier tax ID
-        invoice.receiverName || '',   // Customer name
-        invoice.receiverTaxId || '',  // Customer tax ID
-        invoice.internalId || '',     // Internal ID
-        invoice.uuid || '',           // UUID
-        invoice.pageNumber || ''      // Page number
+        invoice.documentId || '',        // رقم المستند الإلكتروني
+        invoice.internalId || '',        // الرقم الداخلي
+        invoice.issueDate || '',         // تاريخ الإصدار
+        invoice.documentType || '',      // نوع المستند
+        invoice.documentVersion || '',   // إصدار المستند
+        invoice.totalAmount || '',       // إجمالي الفاتورة
+        invoice.supplierName || '',      // اسم المورد
+        invoice.supplierTaxId || '',     // الرقم الضريبي للمورد
+        invoice.receiverName || '',      // اسم العميل
+        invoice.receiverTaxId || '',     // الرقم الضريبي للعميل
+        invoice.submissionId || '',      // رقم الإرسال
+        invoice.status || '',            // الحالة
+        invoice.pageNumber || ''         // رقم الصفحة
       ];
       rows.push(row);
     });
@@ -438,12 +426,7 @@ class ETAInvoiceExporter {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     
     // Format the worksheet
-    this.formatInteractiveWorksheet(ws, headers, data.length);
-    
-    // Add hyperlinks to view buttons
-    if (options.downloadDetails) {
-      this.addViewButtonHyperlinks(ws, data.length);
-    }
+    this.formatWorksheet(ws, headers, data.length);
     
     XLSX.utils.book_append_sheet(wb, ws, 'ملخص الفواتير');
   }
@@ -509,27 +492,22 @@ class ETAInvoiceExporter {
   }
   
   formatInteractiveWorksheet(ws, headers, dataLength) {
+  formatWorksheet(ws, headers, dataLength) {
     // Set column widths
     const colWidths = [
-      { wch: 8 },   // Serial
-      { wch: 10 },  // View button
-      { wch: 15 },  // Document type
-      { wch: 12 },  // Version
-      { wch: 12 },  // Status
-      { wch: 15 },  // Issue date
-      { wch: 15 },  // Submission date
-      { wch: 12 },  // Currency
-      { wch: 15 },  // Invoice value
-      { wch: 18 },  // VAT
-      { wch: 20 },  // Tax discount
-      { wch: 15 },  // Total
-      { wch: 20 },  // Supplier name
-      { wch: 18 },  // Supplier tax ID
-      { wch: 20 },  // Customer name
-      { wch: 18 },  // Customer tax ID
-      { wch: 15 },  // Internal ID
-      { wch: 25 },  // UUID
-      { wch: 10 }   // Page number
+      { wch: 25 },  // رقم المستند الإلكتروني
+      { wch: 15 },  // الرقم الداخلي
+      { wch: 18 },  // تاريخ الإصدار
+      { wch: 15 },  // نوع المستند
+      { wch: 15 },  // إصدار المستند
+      { wch: 15 },  // إجمالي الفاتورة
+      { wch: 25 },  // اسم المورد
+      { wch: 20 },  // الرقم الضريبي للمورد
+      { wch: 25 },  // اسم العميل
+      { wch: 20 },  // الرقم الضريبي للعميل
+      { wch: 15 },  // رقم الإرسال
+      { wch: 12 },  // الحالة
+      { wch: 10 }   // رقم الصفحة
     ];
     
     ws['!cols'] = colWidths;
@@ -551,39 +529,6 @@ class ETAInvoiceExporter {
           right: { style: "thin", color: { rgb: "000000" } }
         }
       };
-    }
-    
-    // Style the view buttons (column B)
-    for (let row = 1; row <= dataLength; row++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: row, c: 1 }); // Column B (index 1)
-      if (!ws[cellAddress]) continue;
-      
-      ws[cellAddress].s = {
-        font: { bold: true, color: { rgb: "FFFFFF" } },
-        fill: { fgColor: { rgb: "4CAF50" } },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: {
-          top: { style: "thin", color: { rgb: "000000" } },
-          bottom: { style: "thin", color: { rgb: "000000" } },
-          left: { style: "thin", color: { rgb: "000000" } },
-          right: { style: "thin", color: { rgb: "000000" } }
-        }
-      };
-    }
-  }
-  
-  addViewButtonHyperlinks(ws, dataLength) {
-    // Add hyperlinks to view buttons that link to detail sheets
-    for (let row = 1; row <= dataLength; row++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: row, c: 1 }); // Column B
-      const sheetName = `تفاصيل_فاتورة_${row}`;
-      
-      if (ws[cellAddress]) {
-        ws[cellAddress].l = {
-          Target: `#'${sheetName}'!A1`,
-          Tooltip: `عرض تفاصيل الفاتورة رقم ${row}`
-        };
-      }
     }
   }
   
