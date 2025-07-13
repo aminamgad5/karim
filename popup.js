@@ -25,16 +25,18 @@ class ETAInvoiceExporter {
       progressBar: null,
       progressText: null,
       checkboxes: {
-        date: document.getElementById('option-date'),
-        id: document.getElementById('option-id'),
-        sellerId: document.getElementById('option-seller-id'),
-        sellerName: document.getElementById('option-seller-name'),
-        buyerId: document.getElementById('option-buyer-id'),
-        buyerName: document.getElementById('option-buyer-name'),
-        uuid: document.getElementById('option-uuid'),
-        type: document.getElementById('option-type'),
-        separateSeller: document.getElementById('option-separate-seller'),
-        separateBuyer: document.getElementById('option-separate-buyer'),
+        documentId: document.getElementById('option-document-id'),
+        internalId: document.getElementById('option-internal-id'),
+        issueDate: document.getElementById('option-issue-date'),
+        documentType: document.getElementById('option-document-type'),
+        documentVersion: document.getElementById('option-document-version'),
+        totalAmount: document.getElementById('option-total-amount'),
+        supplierName: document.getElementById('option-supplier-name'),
+        supplierTaxId: document.getElementById('option-supplier-tax-id'),
+        receiverName: document.getElementById('option-receiver-name'),
+        receiverTaxId: document.getElementById('option-receiver-tax-id'),
+        submissionId: document.getElementById('option-submission-id'),
+        status: document.getElementById('option-status'),
         downloadDetails: document.getElementById('option-download-details'),
         combineAll: document.getElementById('option-combine-all'),
         downloadAll: document.getElementById('option-download-all')
@@ -192,7 +194,13 @@ class ETAInvoiceExporter {
   getSelectedOptions() {
     const options = {};
     Object.keys(this.elements.checkboxes).forEach(key => {
-      options[key] = this.elements.checkboxes[key].checked;
+      const checkbox = this.elements.checkboxes[key];
+      if (checkbox) {
+        options[key] = checkbox.checked;
+      } else {
+        console.warn(`Checkbox not found: ${key}`);
+        options[key] = false;
+      }
     });
     return options;
   }
@@ -229,7 +237,7 @@ class ETAInvoiceExporter {
   }
   
   validateOptions(options) {
-    const hasBasicField = options.date || options.id || options.uuid;
+    const hasBasicField = options.documentId || options.internalId || options.issueDate || options.totalAmount;
     if (!hasBasicField) {
       this.showStatus('يرجى اختيار حقل واحد على الأقل للتصدير', 'error');
       return false;
